@@ -94,12 +94,11 @@ func (a *Agent) Disconnect() {
 
 }
 
-func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn string, content string) (mmtp.ResponseEnum, error) {
+func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn string, bytes []byte) (mmtp.ResponseEnum, error) {
 	if a.state == AgentState_NOTCONNECTED {
 		return mmtp.ResponseEnum_ERROR, errNotConnected
 	}
 
-	bytes := []byte(content)
 	sendMsg := &mmtp.MmtpMessage{
 		MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
 		Uuid:    uuid.NewString(),
@@ -210,6 +209,7 @@ func connectWS(ctx context.Context, url string) (*websocket.Conn, error) {
 	if err != nil {
 		return nil, errors.New("could not connect to MMS Edge Router")
 	}
+	edgeRouterWs.SetReadLimit(1000000)
 	return edgeRouterWs, nil
 }
 

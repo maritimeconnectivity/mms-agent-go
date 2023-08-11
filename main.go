@@ -20,13 +20,23 @@ func connectWithHandling(ctx context.Context, a *mms.Agent, url string) {
 	}
 }
 
-func sendWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string, msg string) {
-	res, err := a.Send(ctx, time.Duration(10), receivingMrn, msg)
+func sendTextWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string, msg string) {
+	res, err := a.Send(ctx, time.Duration(10), receivingMrn, []byte(msg))
 	if err != nil {
 		fmt.Errorf("could not send to edge router: %w", err)
 	}
 	if res == mmtp.ResponseEnum_GOOD {
 		fmt.Println(a.Mrn, "--[", msg, ", to ", receivingMrn, "]--> MMS")
+	}
+}
+
+func sendDataWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string, data []byte) {
+	res, err := a.Send(ctx, time.Duration(10), receivingMrn, data)
+	if err != nil {
+		fmt.Errorf("could not send to edge router: %w", err)
+	}
+	if res == mmtp.ResponseEnum_GOOD {
+		fmt.Println(a.Mrn, "--[", "data", ", to ", receivingMrn, "]--> MMS")
 	}
 }
 
@@ -50,8 +60,15 @@ func main() {
 	const url = "localhost:8080"
 	var agentMrn1 = "urn:mrn:mcp:device:idp1:org1:agent1"
 	var agentMrn2 = "urn:mrn:mcp:device:idp1:org1:agent2"
-	testMsg1 := "Test1"
-	testMsg2 := "Test2"
+
+	// Read the file into a slice of bytes
+	data, err := os.ReadFile("data/S411_20230504_092247_back_to_20230430_095254_Greenland_ASIP.gml")
+	//data, err := os.ReadFile("data/test.txt")
+	if err != nil {
+		// Handle the error
+		fmt.Errorf("there was an error in reading file")
+		return
+	}
 
 	agent1 := mms.NewAgent(agentMrn1)
 	agent2 := mms.NewAgent(agentMrn2)
@@ -59,11 +76,10 @@ func main() {
 	connectWithHandling(ctx, agent1, url)
 	connectWithHandling(ctx, agent2, url)
 
-	sendWithHandling(ctx, agent1, agent1.Mrn, testMsg1)
-	sendWithHandling(ctx, agent1, agent2.Mrn, testMsg1)
-	sendWithHandling(ctx, agent1, agent2.Mrn, testMsg2)
+	sendDataWithHandling(ctx, agent1, agent2.Mrn, data)
 
-	fmt.Println(agent1.Mrn, ":", receiveWithHandling(ctx, agent1))
+	time.Sleep(time.Second)
+
 	fmt.Println(agent2.Mrn, ":", receiveWithHandling(ctx, agent2))
 
 	<-ch
