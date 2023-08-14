@@ -1,4 +1,4 @@
-module github.com/Digital-Maritime-Consultancy/mms-agent-go
+module github.com/maritimeconnectivity/mms-agent-go
 
 go 1.20
 

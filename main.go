@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/Digital-Maritime-Consultancy/mms-agent-go/generated/mmtp"
-	"github.com/Digital-Maritime-Consultancy/mms-agent-go/mms"
+	"github.com/maritimeconnectivity/mms-agent-go/generated/mmtp"
+	"github.com/maritimeconnectivity/mms-agent-go/mms"
 	"os"
 	"os/signal"
 	"time"
