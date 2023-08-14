@@ -21,7 +21,7 @@ func connectWithHandling(ctx context.Context, a *mms.Agent, url string) error {
 	return nil
 }
 
-func discconnectWithHandling(ctx context.Context, a *mms.Agent) error {
+func disconnectWithHandling(ctx context.Context, a *mms.Agent) error {
 	res, err := a.Disconnect(ctx)
 	if err != nil {
 		fmt.Errorf("could not disconnect from edge router: %w", err)
@@ -107,8 +107,8 @@ func main() {
 
 	time.Sleep(time.Second)
 
-	discconnectWithHandling(ctx, agent1)
-	discconnectWithHandling(ctx, agent2)
+	disconnectWithHandling(ctx, agent1)
+	disconnectWithHandling(ctx, agent2)
 	<-ch
 	fmt.Println("Received signal, shutting down...")
 	cancel()
