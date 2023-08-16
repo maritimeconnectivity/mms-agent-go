@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-// Agent type representing a connected Edge Router
+// Agent type representing an agent for a connection to an Edge Router
 type Agent struct {
 	Mrn            string                       // the MRN of the Agent
 	Interests      []string                     // the Interests that the Agent wants to subscribe to
@@ -40,18 +40,19 @@ type Agent struct {
 	ws             *websocket.Conn              // websocket connection bind
 }
 
+// AgentState type representing a state of Agent
 type AgentState int16
-
-var errNotConnected = errors.New("agent could not connect to an Edge Router")
-var errNotAuthenticated = errors.New("agent is not authenticated")
-var errNotDisconnected = errors.New("could not disconnect to MMS Edge Router")
-var errNotDisconnectedWs = errors.New("could not disconnect with websocket")
 
 const (
 	AgentState_NOTCONNECTED  AgentState = 0
 	AgentState_CONNECTED     AgentState = 1
 	AgentState_AUTHENTICATED AgentState = 2
 )
+
+var errNotConnected = errors.New("agent could not connect to an Edge Router")
+var errNotAuthenticated = errors.New("agent is not authenticated")
+var errNotDisconnected = errors.New("could not disconnect to MMS Edge Router")
+var errNotDisconnectedWs = errors.New("could not disconnect with websocket")
 
 // Status returns the the current status of the MMS Agent
 func (a *Agent) Status() []string {
@@ -89,12 +90,15 @@ func (a *Agent) Connect(ctx context.Context, url string) (mmtp.ResponseEnum, err
 	return res.GetResponseMessage().Response, err
 }
 
+// TODO: implement this function
+// Authenticate imports an MCP cert and does authentication.
+// MRN attribute in the cert will be stored to the MRN of Agent
 func (a *Agent) Authenticate(ctx context.Context, certificate *x509.Certificate) (mmtp.ResponseEnum, error) {
 	a.convertState(AgentState_AUTHENTICATED)
 	return mmtp.ResponseEnum_GOOD, nil
 }
 
-// ReconnectAnonymous reconnect anonymously to an MMS Edge Router
+// ReconnectAnonymous reconnects anonymously to an MMS Edge Router
 func (a *Agent) ReconnectAnonymous() {
 
 }
@@ -123,6 +127,7 @@ func (a *Agent) Disconnect(ctx context.Context) (mmtp.ResponseEnum, error) {
 	return mmtp.ResponseEnum_GOOD, nil
 }
 
+// Send transfers a message to another Agent with receivingMrn
 func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn string, bytes []byte) (mmtp.ResponseEnum, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
@@ -164,6 +169,7 @@ func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn
 	return mmtp.ResponseEnum_GOOD, nil
 }
 
+// Receive fetches a list of messages sent to its own MRN
 func (a *Agent) Receive(ctx context.Context) (mmtp.ResponseEnum, []string, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
@@ -207,6 +213,7 @@ func (a *Agent) Receive(ctx context.Context) (mmtp.ResponseEnum, []string, error
 	return mmtp.ResponseEnum_GOOD, msgs, nil
 }
 
+// NewAgent initiates a new Agent object
 func NewAgent(mrn string) *Agent {
 	return &Agent{Mrn: mrn, state: AgentState_NOTCONNECTED}
 }
