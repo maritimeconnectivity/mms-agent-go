@@ -49,16 +49,9 @@ const (
 	AgentState_AUTHENTICATED AgentState = 2
 )
 
-var errNotConnected = errors.New("agent could not connect to an Edge Router")
-var errNotAuthenticated = errors.New("agent is not authenticated")
-var errNotDisconnected = errors.New("could not disconnect to MMS Edge Router")
-var errNotDisconnectedWs = errors.New("could not disconnect with websocket")
-
-// Status returns the the current status of the MMS Agent
-func (a *Agent) Status() []string {
-	var edgeRouterMRNs []string
-	fmt.Println(edgeRouterMRNs)
-	return edgeRouterMRNs
+// Status returns current status of the MMS Agent
+func (a *Agent) Status() AgentState {
+	return a.state
 }
 
 // Discover looks up possible MMS Edge Routers
@@ -79,11 +72,9 @@ func (a *Agent) Connect(ctx context.Context, url string) (mmtp.ResponseEnum, err
 
 	res, errMmtp := a.connectOverMMTP(ctx)
 	if res == nil || errMmtp != nil {
-		fmt.Println("there was a problem in connection to MMS Edge Router", errMmtp)
-		return mmtp.ResponseEnum_ERROR, errMmtp
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("there was a problem in connection to MMS Edge Router: %w", errMmtp)
 	} else if res.GetResponseMessage().Response != mmtp.ResponseEnum_GOOD {
-		fmt.Println("MMS Edge Router did not accept Connect:", res.GetResponseMessage().GetReasonText())
-		return mmtp.ResponseEnum_ERROR, errMmtp
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("MMS Edge Router did not accept Connect: ", res.GetResponseMessage().GetReasonText())
 	}
 
 	a.convertState(AgentState_CONNECTED)
@@ -106,17 +97,14 @@ func (a *Agent) ReconnectAnonymous() {
 // Disconnect disconnects from the MMS Edge Router
 func (a *Agent) Disconnect(ctx context.Context) (mmtp.ResponseEnum, error) {
 	if a.state == AgentState_NOTCONNECTED {
-		fmt.Errorf("already disconnected")
 		return mmtp.ResponseEnum_GOOD, nil
 	}
 
 	res, errMmtp := a.disconnectOverMMTP(ctx)
 	if res == nil || errMmtp != nil {
-		fmt.Println("there was a problem in connection to MMS Edge Router", errMmtp)
-		return mmtp.ResponseEnum_ERROR, errMmtp
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("there was a problem in connection to MMS Edge Router: %w", errMmtp)
 	} else if res.GetResponseMessage().Response != mmtp.ResponseEnum_GOOD {
-		fmt.Println("MMS Edge Router did not accept Disconnect:", res.GetResponseMessage().GetReasonText())
-		return mmtp.ResponseEnum_ERROR, errMmtp
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("MMS Edge Router did not accept Disconnect: ", res.GetResponseMessage().GetReasonText())
 	}
 
 	err := disconnectWS(ctx, a.ws)
@@ -131,9 +119,9 @@ func (a *Agent) Disconnect(ctx context.Context) (mmtp.ResponseEnum, error) {
 func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn string, bytes []byte) (mmtp.ResponseEnum, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
-		return mmtp.ResponseEnum_ERROR, errNotConnected
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not connected to an Edge Router")
 	case AgentState_CONNECTED:
-		return mmtp.ResponseEnum_ERROR, errNotAuthenticated
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not authenticated")
 	}
 
 	sendMsg := &mmtp.MmtpMessage{
@@ -163,8 +151,7 @@ func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn
 	}
 	err := writeMessage(ctx, a.ws, sendMsg)
 	if err != nil {
-		fmt.Println("Could not sendMsg response:", err)
-		return mmtp.ResponseEnum_ERROR, err
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("failed to send message: %w", err)
 	}
 	return mmtp.ResponseEnum_GOOD, nil
 }
@@ -173,9 +160,9 @@ func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn
 func (a *Agent) Receive(ctx context.Context) (mmtp.ResponseEnum, []string, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
-		return mmtp.ResponseEnum_ERROR, nil, errNotConnected
+		return mmtp.ResponseEnum_ERROR, nil, fmt.Errorf("agent is not connected to an Edge Router")
 	case AgentState_CONNECTED:
-		return mmtp.ResponseEnum_ERROR, nil, errNotAuthenticated
+		return mmtp.ResponseEnum_ERROR, nil, fmt.Errorf("agent is not authenticated")
 	}
 
 	receiveMsg := &mmtp.MmtpMessage{
@@ -193,16 +180,9 @@ func (a *Agent) Receive(ctx context.Context) (mmtp.ResponseEnum, []string, error
 		},
 	}
 
-	err := writeMessage(ctx, a.ws, receiveMsg)
+	response, err := writeAndReadMessage(ctx, a.ws, receiveMsg)
 	if err != nil {
-		fmt.Println("Could not sendMsg response:", err)
-		return mmtp.ResponseEnum_ERROR, nil, err
-	}
-
-	response, err := readMessage(ctx, a.ws)
-	if err != nil {
-		fmt.Println(err)
-		return mmtp.ResponseEnum_ERROR, nil, err
+		return mmtp.ResponseEnum_ERROR, nil, fmt.Errorf("could not receive messages: %w", err)
 	}
 
 	msgs := []string{}
@@ -246,10 +226,24 @@ func writeMessage(ctx context.Context, ws *websocket.Conn, mmtpMessage *mmtp.Mmt
 	return nil
 }
 
+func writeAndReadMessage(ctx context.Context, ws *websocket.Conn, mmtpMessage *mmtp.MmtpMessage) (*mmtp.MmtpMessage, error) {
+	err := writeMessage(ctx, ws, mmtpMessage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write message: %w", err)
+	}
+
+	response, err := readMessage(ctx, ws)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message: %w", err)
+	}
+
+	return response, err
+}
+
 func connectWS(ctx context.Context, url string) (*websocket.Conn, error) {
 	edgeRouterWs, _, err := websocket.Dial(ctx, "ws://"+url, nil)
 	if err != nil {
-		return nil, errors.New("could not connect to MMS Edge Router")
+		return nil, fmt.Errorf("could not connect to MMS Edge Router: %w", err)
 	}
 	edgeRouterWs.SetReadLimit(1000000)
 	return edgeRouterWs, nil
@@ -258,7 +252,7 @@ func connectWS(ctx context.Context, url string) (*websocket.Conn, error) {
 func disconnectWS(ctx context.Context, ws *websocket.Conn) error {
 	err := ws.Close(websocket.StatusNormalClosure, "normal closure")
 	if err != nil {
-		return errNotDisconnectedWs
+		return fmt.Errorf("could not disconnect with websocket: %w", err)
 	}
 	return nil
 }
@@ -279,23 +273,11 @@ func (a *Agent) connectOverMMTP(ctx context.Context) (*mmtp.MmtpMessage, error) 
 		},
 	}
 
-	err := writeMessage(ctx, a.ws, connectMsg)
-	if err != nil {
-		fmt.Println("Could not connect:", err)
-		return nil, err
-	}
-
-	response, err := readMessage(ctx, a.ws)
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-
-	return response, err
+	return writeAndReadMessage(ctx, a.ws, connectMsg)
 }
 
 func (a *Agent) disconnectOverMMTP(ctx context.Context) (*mmtp.MmtpMessage, error) {
-	connectMsg := &mmtp.MmtpMessage{
+	disconnectMsg := &mmtp.MmtpMessage{
 		MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
 		Uuid:    uuid.NewString(),
 		Body: &mmtp.MmtpMessage_ProtocolMessage{
@@ -308,17 +290,5 @@ func (a *Agent) disconnectOverMMTP(ctx context.Context) (*mmtp.MmtpMessage, erro
 		},
 	}
 
-	err := writeMessage(ctx, a.ws, connectMsg)
-	if err != nil {
-		fmt.Println("Could not disconnect:", err)
-		return nil, err
-	}
-
-	response, err := readMessage(ctx, a.ws)
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-
-	return response, err
+	return writeAndReadMessage(ctx, a.ws, disconnectMsg)
 }
