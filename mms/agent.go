@@ -54,11 +54,6 @@ func (a *Agent) Status() AgentState {
 	return a.state
 }
 
-// Discover looks up possible MMS Edge Routers
-func (a *Agent) Discover() {
-
-}
-
 // Connect make connect anonymously to an MMS Edge Router
 func (a *Agent) Connect(ctx context.Context, url string) (mmtp.ResponseEnum, error) {
 	err := errors.New("err")
@@ -88,11 +83,6 @@ func (a *Agent) Authenticate(ctx context.Context, certificate *x509.Certificate)
 	return mmtp.ResponseEnum_GOOD, nil
 }
 
-// ReconnectAnonymous reconnects anonymously to an MMS Edge Router
-func (a *Agent) ReconnectAnonymous() {
-
-}
-
 // Disconnect disconnects from the MMS Edge Router
 func (a *Agent) Disconnect(ctx context.Context) (mmtp.ResponseEnum, error) {
 	if a.state == AgentState_NOTCONNECTED {
@@ -113,8 +103,8 @@ func (a *Agent) Disconnect(ctx context.Context) (mmtp.ResponseEnum, error) {
 	return mmtp.ResponseEnum_GOOD, nil
 }
 
-// Send transfers a message to another Agent with receivingMrn
-func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn string, bytes []byte) (mmtp.ResponseEnum, error) {
+// SendDirect transfers a message to another Agent with receivingMrn
+func (a *Agent) SendDirect(ctx context.Context, timeToLive time.Duration, receivingMrn string, bytes []byte) (mmtp.ResponseEnum, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
 		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not connected to an Edge Router")
@@ -154,13 +144,50 @@ func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn
 	return mmtp.ResponseEnum_GOOD, nil
 }
 
+// SendSubject transfers a message with regard to a subject
+func (a *Agent) SendSubject(ctx context.Context, timeToLive time.Duration, subject string, bytes []byte) (mmtp.ResponseEnum, error) {
+	switch a.state {
+	case AgentState_NOTCONNECTED:
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not connected to an Edge Router")
+	case AgentState_CONNECTED:
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not authenticated")
+	}
+
+	sendMsg := &mmtp.MmtpMessage{
+		MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
+		Uuid:    uuid.NewString(),
+		Body: &mmtp.MmtpMessage_ProtocolMessage{
+			ProtocolMessage: &mmtp.ProtocolMessage{
+				ProtocolMsgType: mmtp.ProtocolMessageType_SEND_MESSAGE,
+				Body: &mmtp.ProtocolMessage_SendMessage{
+					SendMessage: &mmtp.Send{
+						ApplicationMessage: &mmtp.ApplicationMessage{
+							Header: &mmtp.ApplicationMessageHeader{
+								SubjectOrRecipient: &mmtp.ApplicationMessageHeader_Subject{
+									Subject: subject,
+								},
+								BodySizeNumBytes: uint32(len(bytes)),
+								Sender:           a.Mrn,
+							},
+							Body: bytes,
+						},
+					},
+				},
+			},
+		},
+	}
+	err := writeMessage(ctx, a.ws, sendMsg)
+	if err != nil {
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("failed to send message: %w", err)
+	}
+	return mmtp.ResponseEnum_GOOD, nil
+}
+
 // Receive fetches a list of messages sent to its own MRN
 func (a *Agent) Receive(ctx context.Context, filter *mmtp.Filter) (mmtp.ResponseEnum, [][]byte, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
 		return mmtp.ResponseEnum_ERROR, nil, fmt.Errorf("agent is not connected to an Edge Router")
-	case AgentState_CONNECTED:
-		return mmtp.ResponseEnum_ERROR, nil, fmt.Errorf("agent is not authenticated")
 	}
 
 	receiveMsg := &mmtp.MmtpMessage{
@@ -189,6 +216,81 @@ func (a *Agent) Receive(ctx context.Context, filter *mmtp.Filter) (mmtp.Response
 	}
 
 	return mmtp.ResponseEnum_GOOD, msgs, nil
+}
+
+func (a *Agent) Subscribe(ctx context.Context, subject string) (mmtp.ResponseEnum, error) {
+	switch a.state {
+	case AgentState_NOTCONNECTED:
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not connected to an Edge Router")
+	}
+
+	subMsg := &mmtp.MmtpMessage{
+		MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
+		Uuid:    uuid.NewString(),
+		Body: &mmtp.MmtpMessage_ProtocolMessage{
+			ProtocolMessage: &mmtp.ProtocolMessage{
+				ProtocolMsgType: mmtp.ProtocolMessageType_SUBSCRIBE_MESSAGE,
+				Body: &mmtp.ProtocolMessage_SubscribeMessage{
+					SubscribeMessage: &mmtp.Subscribe{
+						Subject: subject,
+					},
+				},
+			},
+		},
+	}
+
+	err := writeMessage(ctx, a.ws, subMsg)
+	if err != nil {
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("could not subscribe: %w", err)
+	}
+	a.Interests = append(a.Interests, subject)
+	return mmtp.ResponseEnum_GOOD, nil
+}
+
+func (a *Agent) Unsubscribe(ctx context.Context, subject string) (mmtp.ResponseEnum, error) {
+	switch a.state {
+	case AgentState_NOTCONNECTED:
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not connected to an Edge Router")
+	}
+
+	subMsg := &mmtp.MmtpMessage{
+		MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
+		Uuid:    uuid.NewString(),
+		Body: &mmtp.MmtpMessage_ProtocolMessage{
+			ProtocolMessage: &mmtp.ProtocolMessage{
+				ProtocolMsgType: mmtp.ProtocolMessageType_UNSUBSCRIBE_MESSAGE,
+				Body: &mmtp.ProtocolMessage_UnsubscribeMessage{
+					UnsubscribeMessage: &mmtp.Unsubscribe{
+						Subject: subject,
+					},
+				},
+			},
+		},
+	}
+
+	err := writeMessage(ctx, a.ws, subMsg)
+	if err != nil {
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("could not unsubcribe: %w", err)
+	}
+	a.Interests = remove(a.Interests, subject)
+	return mmtp.ResponseEnum_GOOD, nil
+}
+
+func (a *Agent) SubscribeMessages(ctx context.Context) {
+
+}
+
+// ReconnectAnonymous reconnects anonymously to an MMS Edge Router
+func (a *Agent) ReconnectAnonymous() {
+
+}
+func (a *Agent) UnsubscribeMessages(ctx context.Context) {
+
+}
+
+// Discover looks up possible MMS Edge Routers
+func (a *Agent) Discover() {
+
 }
 
 // NewAgent initiates a new Agent object
@@ -253,6 +355,28 @@ func disconnectWS(ctx context.Context, ws *websocket.Conn) error {
 		return fmt.Errorf("could not disconnect with websocket: %w", err)
 	}
 	return nil
+}
+
+/*
+	func TestRemove() {
+		test := make([]string, 0)
+		test = append(test, "Test1")
+		fmt.Println(remove(test, "Test2"))
+		fmt.Println(remove(test, "Test1"))
+	}
+*/
+func remove(slice []string, s string) []string {
+	var idx = -1
+	for i := range slice {
+		if slice[i] == s {
+			idx = i
+			break
+		}
+	}
+	if idx != -1 {
+		return append(slice[:idx], slice[idx+1:]...)
+	}
+	return slice
 }
 
 func (a *Agent) connectOverMMTP(ctx context.Context) (*mmtp.MmtpMessage, error) {

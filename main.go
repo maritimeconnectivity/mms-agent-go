@@ -34,7 +34,7 @@ func disconnectWithHandling(ctx context.Context, a *mms.Agent) {
 }
 
 func sendTextWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string, msg string) {
-	res, err := a.Send(ctx, time.Duration(10), receivingMrn, []byte(msg))
+	res, err := a.SendDirect(ctx, time.Duration(10), receivingMrn, []byte(msg))
 	if err != nil {
 		fmt.Println("could not send to edge router: %w", err)
 	}
@@ -44,7 +44,7 @@ func sendTextWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string
 }
 
 func sendDataWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string, data []byte) {
-	res, err := a.Send(ctx, time.Duration(10), receivingMrn, data)
+	res, err := a.SendDirect(ctx, time.Duration(10), receivingMrn, data)
 	if err != nil {
 		fmt.Println("could not send to edge router: %w", err)
 	}
@@ -53,17 +53,111 @@ func sendDataWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string
 	}
 }
 
+func sendData4SubjectWithHandling(ctx context.Context, a *mms.Agent, subject string, data []byte) {
+	res, err := a.SendSubject(ctx, time.Duration(10), subject, data)
+	if err != nil {
+		fmt.Println("could not send to edge router: %w", err)
+	}
+	if res == mmtp.ResponseEnum_GOOD {
+		fmt.Println(a.Mrn, "--[", "data", ", to subject ", subject, "]--> MMS")
+	}
+}
+
 func receiveWithHandling(ctx context.Context, a *mms.Agent) [][]byte {
 	var msgList [][]byte
 	_, msgList, err := a.Receive(ctx, nil)
 	if err != nil {
-		fmt.Println("could not send to edge router: %w", err)
+		fmt.Println("could not receive from edge router: %w", err)
 	}
 	fmt.Println("MMS --", len(msgList), "messages -->", a.Mrn, "\n")
 	for idx, msg := range msgList {
 		fmt.Println(idx, ":", string(msg[:]))
 	}
 	return msgList
+}
+
+func sendDataOverDirectMessage(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, dataFileName string) {
+	// Read the file into a slice of bytes
+	data, err := os.ReadFile(dataFileName)
+	if err != nil {
+		// Handle the error
+		fmt.Println("there was an error in reading file: ", dataFileName)
+		return
+	}
+	sendDataWithHandling(ctx, sender, receiver.Mrn, data)
+	sendDataWithHandling(ctx, sender, receiver.Mrn, data)
+
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+	fmt.Println("test done - sendDataOverDirectMessage")
+}
+
+func subscribeTopic(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, subject string) {
+	receiver.Subscribe(ctx, subject)
+
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello1"))
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello2"))
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello3"))
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+	fmt.Println("test done - subscribeTopic")
+}
+
+func subAndUnsubscribeTopic(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, subject string) {
+	receiver.Subscribe(ctx, subject)
+
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello1"))
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+
+	time.Sleep(time.Second)
+	receiver.Unsubscribe(ctx, subject)
+
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello2"))
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello3"))
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+	fmt.Println("test done - subAndUnsubscribeTopic")
+}
+
+func subUnsubReconnection(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, subject string, url string) {
+	receiver.Subscribe(ctx, subject)
+
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello1"))
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+
+	time.Sleep(time.Second)
+	receiver.Disconnect(ctx)
+
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello2"))
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello3"))
+	time.Sleep(time.Second)
+
+	receiver.Connect(ctx, url)
+	receiveWithHandling(ctx, receiver)
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+	fmt.Println("test done - subUnsubReconnection")
 }
 
 func main() {
@@ -77,38 +171,34 @@ func main() {
 	var agentMrn1 = "urn:mrn:mcp:device:idp1:org1:agent1"
 	var agentMrn2 = "urn:mrn:mcp:device:idp1:org1:agent2"
 
-	const dataFileName = "data/test.txt" // "data/S411_20230504_092247_back_to_20230430_095254_Greenland_ASIP.gml"
-	// Read the file into a slice of bytes
-	data, err := os.ReadFile(dataFileName)
-	if err != nil {
-		// Handle the error
-		fmt.Println("there was an error in reading file: ", dataFileName)
-		return
-	}
-
 	agent1 := mms.NewAgent(agentMrn1)
 	agent2 := mms.NewAgent(agentMrn2)
 
 	err1 := connectWithHandling(ctx, agent1, url)
 	if err1 != nil {
-		fmt.Println("could not connect to edge router: %w", err)
+		fmt.Println("could not connect to edge router: %w", err1)
 		return
 	}
 
 	err2 := connectWithHandling(ctx, agent2, url)
 	if err2 != nil {
-		fmt.Println("could not connect to edge router: %w", err)
+		fmt.Println("could not connect to edge router: %w", err2)
 		return
 	}
 
-	sendDataWithHandling(ctx, agent1, agent2.Mrn, data)
-	sendDataWithHandling(ctx, agent1, agent2.Mrn, data)
+	const dataFileName = "data/test.txt" // "data/S411_20230504_092247_back_to_20230430_095254_Greenland_ASIP.gml"
 
-	time.Sleep(time.Second)
+	// test case 1 - direct message from one to another
+	//sendDataOverDirectMessage(ctx, agent1, agent2, dataFileName)
 
-	receiveWithHandling(ctx, agent2)
+	// test case 2 - subscribed message from topic
+	//subscribeTopic(ctx, agent1, agent2, "test")
 
-	time.Sleep(time.Second)
+	// test case 3 - subscription and unsubscription
+	subAndUnsubscribeTopic(ctx, agent1, agent2, "test")
+
+	// test case 4 - subscription and unsubscription with reconnection
+	subUnsubReconnection(ctx, agent1, agent2, "test", url)
 
 	disconnectWithHandling(ctx, agent1)
 	disconnectWithHandling(ctx, agent2)
