@@ -185,7 +185,7 @@ func (a *Agent) Receive(ctx context.Context) (mmtp.ResponseEnum, []string, error
 		return mmtp.ResponseEnum_ERROR, nil, fmt.Errorf("could not receive messages: %w", err)
 	}
 
-	msgs := []string{}
+	msgs := make([]string, 0, len(response.GetResponseMessage().GetApplicationMessages()))
 	for _, msg := range response.GetResponseMessage().GetApplicationMessages() {
 		msgs = append(msgs, string(msg.GetBody()))
 	}
