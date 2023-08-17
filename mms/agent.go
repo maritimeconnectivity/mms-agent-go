@@ -19,7 +19,6 @@ package mms
 import (
 	"context"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/maritimeconnectivity/mms-agent-go/generated/mmtp"
@@ -54,9 +53,29 @@ func (a *Agent) Status() AgentState {
 	return a.state
 }
 
-// Connect make connect anonymously to an MMS Edge Router
-func (a *Agent) Connect(ctx context.Context, url string) (mmtp.ResponseEnum, error) {
-	err := errors.New("err")
+// ConnectAuthenticated make connect to an MMS Edge Router
+func (a *Agent) ConnectAuthenticated(ctx context.Context, url string) (mmtp.ResponseEnum, error) {
+	ws, err := connectWS(ctx, url)
+	a.ws = ws
+
+	if err != nil {
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("failed to connect to MMS Edge Router: %w", err)
+	}
+
+	res, errMmtp := a.connectOverMMTP(ctx)
+	if res == nil || errMmtp != nil {
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("there was a problem in connection to MMS Edge Router: %w", errMmtp)
+	} else if res.GetResponseMessage().Response != mmtp.ResponseEnum_GOOD {
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("MMS Edge Router did not accept ConnectAuthenticated: ", res.GetResponseMessage().GetReasonText())
+	}
+
+	a.convertState(AgentState_CONNECTED)
+	a.Authenticate(ctx, nil)
+	return res.GetResponseMessage().Response, err
+}
+
+// ConnectAnonymous make connect anonymously to an MMS Edge Router
+func (a *Agent) ConnectAnonymous(ctx context.Context, url string) (mmtp.ResponseEnum, error) {
 	ws, err := connectWS(ctx, url)
 	a.ws = ws
 
@@ -64,11 +83,11 @@ func (a *Agent) Connect(ctx context.Context, url string) (mmtp.ResponseEnum, err
 		return mmtp.ResponseEnum_ERROR, fmt.Errorf("could not create web socket connection: %w", err)
 	}
 
-	res, errMmtp := a.connectOverMMTP(ctx)
+	res, errMmtp := a.connectAnonymousOverMMTP(ctx)
 	if res == nil || errMmtp != nil {
-		return mmtp.ResponseEnum_ERROR, fmt.Errorf("there was a problem in connection to MMS Edge Router: %w", errMmtp)
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("failed to connect to MMS Edge Router: %w", errMmtp)
 	} else if res.GetResponseMessage().Response != mmtp.ResponseEnum_GOOD {
-		return mmtp.ResponseEnum_ERROR, fmt.Errorf("MMS Edge Router did not accept Connect: ", res.GetResponseMessage().GetReasonText())
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("MMS Edge Router did not accept ConnectAuthenticated: ", res.GetResponseMessage().GetReasonText())
 	}
 
 	a.convertState(AgentState_CONNECTED)
@@ -390,6 +409,23 @@ func (a *Agent) connectOverMMTP(ctx context.Context) (*mmtp.MmtpMessage, error) 
 					ConnectMessage: &mmtp.Connect{
 						OwnMrn: &a.Mrn,
 					},
+				},
+			},
+		},
+	}
+
+	return writeAndReadMessage(ctx, a.ws, connectMsg)
+}
+
+func (a *Agent) connectAnonymousOverMMTP(ctx context.Context) (*mmtp.MmtpMessage, error) {
+	connectMsg := &mmtp.MmtpMessage{
+		MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
+		Uuid:    uuid.NewString(),
+		Body: &mmtp.MmtpMessage_ProtocolMessage{
+			ProtocolMessage: &mmtp.ProtocolMessage{
+				ProtocolMsgType: mmtp.ProtocolMessageType_CONNECT_MESSAGE,
+				Body: &mmtp.ProtocolMessage_ConnectMessage{
+					ConnectMessage: &mmtp.Connect{},
 				},
 			},
 		},

@@ -11,13 +11,22 @@ import (
 )
 
 func connectWithHandling(ctx context.Context, a *mms.Agent, url string) error {
-	res, err := a.Connect(ctx, url)
+	res, err := a.ConnectAuthenticated(ctx, url)
 	if err != nil || res != mmtp.ResponseEnum_GOOD {
 		fmt.Println("could not connect to edge router: %w", err)
 		return err
 	}
-	a.Authenticate(ctx, nil)
 	fmt.Println(a.Mrn, "is connected")
+	return nil
+}
+
+func connectAnonymousWithHandling(ctx context.Context, a *mms.Agent, url string) error {
+	res, err := a.ConnectAnonymous(ctx, url)
+	if err != nil || res != mmtp.ResponseEnum_GOOD {
+		fmt.Println("could not connect to edge router: %w", err)
+		return err
+	}
+	fmt.Println(a.Mrn, "is connected anonymously")
 	return nil
 }
 
@@ -103,6 +112,9 @@ func subscribeTopic(ctx context.Context, sender *mms.Agent, receiver *mms.Agent,
 
 	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello2"))
 	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello3"))
+	time.Sleep(time.Second * 10)
+
+	receiveWithHandling(ctx, receiver)
 	time.Sleep(time.Second)
 
 	receiveWithHandling(ctx, receiver)
@@ -149,7 +161,7 @@ func subUnsubReconnection(ctx context.Context, sender *mms.Agent, receiver *mms.
 	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello3"))
 	time.Sleep(time.Second)
 
-	receiver.Connect(ctx, url)
+	receiver.ConnectAuthenticated(ctx, url)
 	receiveWithHandling(ctx, receiver)
 	time.Sleep(time.Second)
 
@@ -160,6 +172,29 @@ func subUnsubReconnection(ctx context.Context, sender *mms.Agent, receiver *mms.
 	fmt.Println("test done - subUnsubReconnection")
 }
 
+func connectAndSubAnonymous(ctx context.Context, sender *mms.Agent, receiverAuthenticated *mms.Agent, url string) {
+	const subject = "anonymousTest"
+
+	receiverAnonymous := mms.NewAgent("")
+
+	connectAnonymousWithHandling(ctx, receiverAnonymous, url)
+
+	receiverAnonymous.Subscribe(ctx, subject)
+
+	receiverAuthenticated.Subscribe(ctx, subject)
+
+	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello~~"))
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiverAnonymous)
+	receiveWithHandling(ctx, receiverAuthenticated)
+
+	time.Sleep(time.Second)
+	receiveWithHandling(ctx, receiverAnonymous)
+	receiveWithHandling(ctx, receiverAuthenticated)
+	disconnectWithHandling(ctx, receiverAnonymous)
+	fmt.Println("test done - connectAndSubAnonymous")
+}
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -195,10 +230,12 @@ func main() {
 	//subscribeTopic(ctx, agent1, agent2, "test")
 
 	// test case 3 - subscription and unsubscription
-	subAndUnsubscribeTopic(ctx, agent1, agent2, "test")
+	//subAndUnsubscribeTopic(ctx, agent1, agent2, "test")
 
-	// test case 4 - subscription and unsubscription with reconnection
-	subUnsubReconnection(ctx, agent1, agent2, "test", url)
+	// TODO: test case 4 - subscription and unsubscription with reconnection
+	//subUnsubReconnection(ctx, agent1, agent2, "test", url)
+
+	connectAndSubAnonymous(ctx, agent1, agent2, url)
 
 	disconnectWithHandling(ctx, agent1)
 	disconnectWithHandling(ctx, agent2)
