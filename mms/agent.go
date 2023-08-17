@@ -66,8 +66,7 @@ func (a *Agent) Connect(ctx context.Context, url string) (mmtp.ResponseEnum, err
 	a.ws = ws
 
 	if err != nil {
-		fmt.Errorf("could not create web socket connection: %w", err)
-		return mmtp.ResponseEnum_ERROR, err
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("could not create web socket connection: %w", err)
 	}
 
 	res, errMmtp := a.connectOverMMTP(ctx)
@@ -109,8 +108,7 @@ func (a *Agent) Disconnect(ctx context.Context) (mmtp.ResponseEnum, error) {
 
 	err := disconnectWS(ctx, a.ws)
 	if err != nil {
-		fmt.Errorf("could not disconnect web socket connection: %w", err)
-		return mmtp.ResponseEnum_ERROR, err
+		return mmtp.ResponseEnum_ERROR, fmt.Errorf("could not disconnect web socket connection: %w", err)
 	}
 	return mmtp.ResponseEnum_GOOD, nil
 }
@@ -157,7 +155,7 @@ func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn
 }
 
 // Receive fetches a list of messages sent to its own MRN
-func (a *Agent) Receive(ctx context.Context) (mmtp.ResponseEnum, []string, error) {
+func (a *Agent) Receive(ctx context.Context, filter *mmtp.Filter) (mmtp.ResponseEnum, [][]byte, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
 		return mmtp.ResponseEnum_ERROR, nil, fmt.Errorf("agent is not connected to an Edge Router")
@@ -173,7 +171,7 @@ func (a *Agent) Receive(ctx context.Context) (mmtp.ResponseEnum, []string, error
 				ProtocolMsgType: mmtp.ProtocolMessageType_RECEIVE_MESSAGE,
 				Body: &mmtp.ProtocolMessage_ReceiveMessage{
 					ReceiveMessage: &mmtp.Receive{
-						Filter: nil,
+						Filter: filter,
 					},
 				},
 			},
@@ -185,9 +183,9 @@ func (a *Agent) Receive(ctx context.Context) (mmtp.ResponseEnum, []string, error
 		return mmtp.ResponseEnum_ERROR, nil, fmt.Errorf("could not receive messages: %w", err)
 	}
 
-	msgs := make([]string, 0, len(response.GetResponseMessage().GetApplicationMessages()))
+	msgs := make([][]byte, 0, len(response.GetResponseMessage().GetApplicationMessages()))
 	for _, msg := range response.GetResponseMessage().GetApplicationMessages() {
-		msgs = append(msgs, string(msg.GetBody()))
+		msgs = append(msgs, msg.GetBody())
 	}
 
 	return mmtp.ResponseEnum_GOOD, msgs, nil
