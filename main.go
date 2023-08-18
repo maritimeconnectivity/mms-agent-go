@@ -43,7 +43,7 @@ func disconnectWithHandling(ctx context.Context, a *mms.Agent) {
 }
 
 func sendTextWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string, msg string) {
-	res, err := a.SendDirect(ctx, time.Duration(10), receivingMrn, []byte(msg))
+	res, err := a.Send(ctx, time.Duration(10), receivingMrn, []byte(msg))
 	if err != nil {
 		fmt.Println("could not send to edge router: %w", err)
 	}
@@ -52,23 +52,26 @@ func sendTextWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string
 	}
 }
 
+func appendFileName(fileName string, data []byte) []byte {
+	return append([]byte("FILE"+fileName+"FILE"), data...)
+}
 func sendDataWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string, data []byte) {
-	res, err := a.SendDirect(ctx, time.Duration(10), receivingMrn, data)
+	res, err := a.Send(ctx, time.Duration(10), receivingMrn, data)
 	if err != nil {
 		fmt.Println("could not send to edge router: %w", err)
 	}
 	if res == mmtp.ResponseEnum_GOOD {
-		fmt.Println(a.Mrn, "--[", "data", ", to ", receivingMrn, "]--> MMS")
+		fmt.Println(a.Mrn, "--send[", "data", ", to ", receivingMrn, "]--> MMS")
 	}
 }
 
-func sendData4SubjectWithHandling(ctx context.Context, a *mms.Agent, subject string, data []byte) {
-	res, err := a.SendSubject(ctx, time.Duration(10), subject, data)
+func publishDataWithHandling(ctx context.Context, a *mms.Agent, subject string, data []byte) {
+	res, err := a.Publish(ctx, time.Duration(10), subject, data)
 	if err != nil {
-		fmt.Println("could not send to edge router: %w", err)
+		fmt.Println("could not publish data: %w", err)
 	}
 	if res == mmtp.ResponseEnum_GOOD {
-		fmt.Println(a.Mrn, "--[", "data", ", to subject ", subject, "]--> MMS")
+		fmt.Println(a.Mrn, "--publish[", "data", ", to subject ", subject, "]--> MMS")
 	}
 }
 
@@ -93,7 +96,7 @@ func sendDataOverDirectMessage(ctx context.Context, sender *mms.Agent, receiver 
 		fmt.Println("there was an error in reading file: ", dataFileName)
 		return
 	}
-	sendDataWithHandling(ctx, sender, receiver.Mrn, data)
+
 	sendDataWithHandling(ctx, sender, receiver.Mrn, data)
 
 	time.Sleep(time.Second)
@@ -105,13 +108,13 @@ func sendDataOverDirectMessage(ctx context.Context, sender *mms.Agent, receiver 
 func subscribeTopic(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, subject string) {
 	receiver.Subscribe(ctx, subject)
 
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello1"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello1"))
 	time.Sleep(time.Second)
 
 	receiveWithHandling(ctx, receiver)
 
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello2"))
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello3"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello2"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello3"))
 	time.Sleep(time.Second * 10)
 
 	receiveWithHandling(ctx, receiver)
@@ -124,7 +127,7 @@ func subscribeTopic(ctx context.Context, sender *mms.Agent, receiver *mms.Agent,
 func subAndUnsubscribeTopic(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, subject string) {
 	receiver.Subscribe(ctx, subject)
 
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello1"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello1"))
 	time.Sleep(time.Second)
 
 	receiveWithHandling(ctx, receiver)
@@ -132,8 +135,8 @@ func subAndUnsubscribeTopic(ctx context.Context, sender *mms.Agent, receiver *mm
 	time.Sleep(time.Second)
 	receiver.Unsubscribe(ctx, subject)
 
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello2"))
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello3"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello2"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello3"))
 	time.Sleep(time.Second)
 
 	receiveWithHandling(ctx, receiver)
@@ -146,10 +149,39 @@ func subAndUnsubscribeTopic(ctx context.Context, sender *mms.Agent, receiver *mm
 	fmt.Println("test done - subAndUnsubscribeTopic")
 }
 
+func subAndUnsubscribeWithData(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, subject string, dataFileName string) {
+	// Read the file into a slice of bytes
+	data, err := os.ReadFile(dataFileName)
+	if err != nil {
+		// Handle the error
+		fmt.Println("there was an error in reading file: ", dataFileName)
+		return
+	}
+	// append a fileName with specific format
+	data = appendFileName(dataFileName, data)
+
+	receiver.Subscribe(ctx, subject)
+
+	publishDataWithHandling(ctx, sender, subject, data)
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+
+	time.Sleep(time.Second)
+	receiver.Unsubscribe(ctx, subject)
+
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello2"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello3"))
+	time.Sleep(time.Second)
+
+	receiveWithHandling(ctx, receiver)
+	fmt.Println("test done - subAndUnsubscribeTopic")
+}
+
 func subUnsubReconnection(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, subject string, url string) {
 	receiver.Subscribe(ctx, subject)
 
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello1"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello1"))
 	time.Sleep(time.Second)
 
 	receiveWithHandling(ctx, receiver)
@@ -157,15 +189,11 @@ func subUnsubReconnection(ctx context.Context, sender *mms.Agent, receiver *mms.
 	time.Sleep(time.Second)
 	receiver.Disconnect(ctx)
 
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello2"))
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello3"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello2"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello3"))
 	time.Sleep(time.Second)
 
 	receiver.ConnectAuthenticated(ctx, url)
-	receiveWithHandling(ctx, receiver)
-	time.Sleep(time.Second)
-
-	receiveWithHandling(ctx, receiver)
 	time.Sleep(time.Second)
 
 	receiveWithHandling(ctx, receiver)
@@ -183,7 +211,7 @@ func connectAndSubAnonymous(ctx context.Context, sender *mms.Agent, receiverAuth
 
 	receiverAuthenticated.Subscribe(ctx, subject)
 
-	sendData4SubjectWithHandling(ctx, sender, subject, []byte("Hello~~"))
+	publishDataWithHandling(ctx, sender, subject, []byte("Hello~~"))
 	time.Sleep(time.Second)
 
 	receiveWithHandling(ctx, receiverAnonymous)
@@ -223,8 +251,9 @@ func main() {
 
 	const dataFileName = "data/test.txt" // "data/S411_20230504_092247_back_to_20230430_095254_Greenland_ASIP.gml"
 
+	// integration tests:
 	// test case 1 - direct message from one to another
-	//sendDataOverDirectMessage(ctx, agent1, agent2, dataFileName)
+	sendDataOverDirectMessage(ctx, agent1, agent2, dataFileName)
 
 	// test case 2 - subscribed message from topic
 	//subscribeTopic(ctx, agent1, agent2, "test")
@@ -232,13 +261,17 @@ func main() {
 	// test case 3 - subscription and unsubscription
 	//subAndUnsubscribeTopic(ctx, agent1, agent2, "test")
 
+	//subAndUnsubscribeWithData(ctx, agent1, agent2, "test", dataFileName)
+
 	// TODO: test case 4 - subscription and unsubscription with reconnection
 	//subUnsubReconnection(ctx, agent1, agent2, "test", url)
 
-	connectAndSubAnonymous(ctx, agent1, agent2, url)
+	// test case 5 - subscription with an anonymous user
+	//connectAndSubAnonymous(ctx, agent1, agent2, url)
 
 	disconnectWithHandling(ctx, agent1)
 	disconnectWithHandling(ctx, agent2)
+
 	<-ch
 	fmt.Println("Received signal, shutting down...")
 	cancel()

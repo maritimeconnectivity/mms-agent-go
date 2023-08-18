@@ -122,8 +122,8 @@ func (a *Agent) Disconnect(ctx context.Context) (mmtp.ResponseEnum, error) {
 	return mmtp.ResponseEnum_GOOD, nil
 }
 
-// SendDirect transfers a message to another Agent with receivingMrn
-func (a *Agent) SendDirect(ctx context.Context, timeToLive time.Duration, receivingMrn string, bytes []byte) (mmtp.ResponseEnum, error) {
+// Send transfers a message to another Agent with receivingMrn
+func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn string, bytes []byte) (mmtp.ResponseEnum, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
 		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not connected to an Edge Router")
@@ -163,8 +163,8 @@ func (a *Agent) SendDirect(ctx context.Context, timeToLive time.Duration, receiv
 	return mmtp.ResponseEnum_GOOD, nil
 }
 
-// SendSubject transfers a message with regard to a subject
-func (a *Agent) SendSubject(ctx context.Context, timeToLive time.Duration, subject string, bytes []byte) (mmtp.ResponseEnum, error) {
+// Publish transfers a message with regard to a subject
+func (a *Agent) Publish(ctx context.Context, timeToLive time.Duration, subject string, bytes []byte) (mmtp.ResponseEnum, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
 		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not connected to an Edge Router")
