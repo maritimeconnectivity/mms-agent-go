@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"github.com/maritimeconnectivity/mms-agent-go/generated/mmtp"
 	"github.com/maritimeconnectivity/mms-agent-go/mms"
+	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -52,9 +56,29 @@ func sendTextWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string
 	}
 }
 
-func appendFileName(fileName string, data []byte) []byte {
-	return append([]byte("FILE"+fileName+"FILE"), data...)
+func encodeFileName(fileName string, data []byte) []byte {
+	return append([]byte("FILE"+filepath.Base(fileName)+"FILE"), data...)
 }
+
+func regSplit(text string, delimeter string) []string {
+	regex := regexp.MustCompile(delimeter)
+	return regex.Split(text, -1)
+}
+func decodeFileName(data []byte) (string, []byte) {
+	match, _ := regexp.MatchString("FILE", string(data))
+	if match {
+		var filtered []string
+		dataStr := strings.Split(string(data), "FILE")
+		for _, data := range dataStr {
+			if len(data) > 0 {
+				filtered = append(filtered, data)
+			}
+		}
+		return filtered[0], []byte(filtered[1])
+	}
+	return "", data
+}
+
 func sendDataWithHandling(ctx context.Context, a *mms.Agent, receivingMrn string, data []byte) {
 	res, err := a.Send(ctx, time.Duration(10), receivingMrn, data)
 	if err != nil {
@@ -83,17 +107,34 @@ func receiveWithHandling(ctx context.Context, a *mms.Agent) [][]byte {
 	}
 	fmt.Println("MMS --", len(msgList), "messages -->", a.Mrn, "\n")
 	for idx, msg := range msgList {
-		fmt.Println(idx, ":", string(msg[:]))
+		fileName, data := decodeFileName(msg[:])
+		if len(fileName) > 0 {
+			fmt.Println(idx, "-", fileName, ":", string(data))
+		} else {
+			fmt.Println(idx, ":", string(msg[:]))
+		}
 	}
 	return msgList
 }
 
-func sendDataOverDirectMessage(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, dataFileName string) {
-	// Read the file into a slice of bytes
+// readFile reads the file into a slice of bytes
+func readFile(ctx context.Context, dataFileName string) ([]byte, error) {
 	data, err := os.ReadFile(dataFileName)
 	if err != nil {
+		return nil, err
+	}
+
+	// append a fileName with specific format
+	data = encodeFileName(dataFileName, data)
+
+	return data, nil
+}
+
+func sendDataOverDirectMessage(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, dataFileName string) {
+	data, err := readFile(ctx, dataFileName)
+	if err != nil {
 		// Handle the error
-		fmt.Println("there was an error in reading file: ", dataFileName)
+		log.Fatalln("there was an error in reading file ", dataFileName, ":", err)
 		return
 	}
 
@@ -140,25 +181,16 @@ func subAndUnsubscribeTopic(ctx context.Context, sender *mms.Agent, receiver *mm
 	time.Sleep(time.Second)
 
 	receiveWithHandling(ctx, receiver)
-	time.Sleep(time.Second)
-
-	receiveWithHandling(ctx, receiver)
-	time.Sleep(time.Second)
-
-	receiveWithHandling(ctx, receiver)
 	fmt.Println("test done - subAndUnsubscribeTopic")
 }
 
 func subAndUnsubscribeWithData(ctx context.Context, sender *mms.Agent, receiver *mms.Agent, subject string, dataFileName string) {
-	// Read the file into a slice of bytes
-	data, err := os.ReadFile(dataFileName)
+	data, err := readFile(ctx, dataFileName)
 	if err != nil {
 		// Handle the error
-		fmt.Println("there was an error in reading file: ", dataFileName)
+		log.Fatalln("there was an error in reading file ", dataFileName, ":", err)
 		return
 	}
-	// append a fileName with specific format
-	data = appendFileName(dataFileName, data)
 
 	receiver.Subscribe(ctx, subject)
 
@@ -200,7 +232,14 @@ func subUnsubReconnection(ctx context.Context, sender *mms.Agent, receiver *mms.
 	fmt.Println("test done - subUnsubReconnection")
 }
 
-func connectAndSubAnonymous(ctx context.Context, sender *mms.Agent, receiverAuthenticated *mms.Agent, url string) {
+func connectAndSubAnonymous(ctx context.Context, sender *mms.Agent, receiverAuthenticated *mms.Agent, url string, dataFileName string) {
+	data, err := readFile(ctx, dataFileName)
+	if err != nil {
+		// Handle the error
+		log.Fatalln("there was an error in reading file ", dataFileName, ":", err)
+		return
+	}
+
 	const subject = "anonymousTest"
 
 	receiverAnonymous := mms.NewAgent("")
@@ -211,7 +250,7 @@ func connectAndSubAnonymous(ctx context.Context, sender *mms.Agent, receiverAuth
 
 	receiverAuthenticated.Subscribe(ctx, subject)
 
-	publishDataWithHandling(ctx, sender, subject, []byte("Hello~~"))
+	publishDataWithHandling(ctx, sender, subject, data)
 	time.Sleep(time.Second)
 
 	receiveWithHandling(ctx, receiverAnonymous)
@@ -223,13 +262,8 @@ func connectAndSubAnonymous(ctx context.Context, sender *mms.Agent, receiverAuth
 	disconnectWithHandling(ctx, receiverAnonymous)
 	fmt.Println("test done - connectAndSubAnonymous")
 }
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
 
-	// wait for a SIGINT or SIGTERM signal
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, os.Interrupt)
-
+func doIntegrationTest(ctx context.Context) {
 	const url = "localhost:8888"
 	var agentMrn1 = "urn:mrn:mcp:device:idp1:org1:agent1"
 	var agentMrn2 = "urn:mrn:mcp:device:idp1:org1:agent2"
@@ -253,7 +287,7 @@ func main() {
 
 	// integration tests:
 	// test case 1 - direct message from one to another
-	sendDataOverDirectMessage(ctx, agent1, agent2, dataFileName)
+	//sendDataOverDirectMessage(ctx, agent1, agent2, dataFileName)
 
 	// test case 2 - subscribed message from topic
 	//subscribeTopic(ctx, agent1, agent2, "test")
@@ -267,10 +301,34 @@ func main() {
 	//subUnsubReconnection(ctx, agent1, agent2, "test", url)
 
 	// test case 5 - subscription with an anonymous user
-	//connectAndSubAnonymous(ctx, agent1, agent2, url)
+	connectAndSubAnonymous(ctx, agent1, agent2, url, dataFileName)
 
 	disconnectWithHandling(ctx, agent1)
 	disconnectWithHandling(ctx, agent2)
+}
+
+func testFileNameEncoding(ctx context.Context) {
+	const dataFileName = "data/test.txt" // "data/S411_20230504_092247_back_to_20230430_095254_Greenland_ASIP.gml"
+	data, _ := readFile(ctx, dataFileName)
+	fmt.Println(string(data))
+	name, data := decodeFileName(data)
+	if name == dataFileName {
+		fmt.Println(name, data)
+	}
+	name, data = decodeFileName([]byte("Teest"))
+	fmt.Println(name, data)
+}
+
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	doIntegrationTest(ctx)
+
+	//testFileNameEncoding(ctx)
+
+	// wait for a SIGINT or SIGTERM signal
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt)
 
 	<-ch
 	fmt.Println("Received signal, shutting down...")
