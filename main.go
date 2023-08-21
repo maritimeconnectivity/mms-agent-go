@@ -60,10 +60,6 @@ func encodeFileName(fileName string, data []byte) []byte {
 	return append([]byte("FILE"+filepath.Base(fileName)+"FILE"), data...)
 }
 
-func regSplit(text string, delimeter string) []string {
-	regex := regexp.MustCompile(delimeter)
-	return regex.Split(text, -1)
-}
 func decodeFileName(data []byte) (string, []byte) {
 	match, _ := regexp.MatchString("FILE", string(data))
 	if match {
