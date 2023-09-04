@@ -123,7 +123,7 @@ func (a *Agent) Disconnect(ctx context.Context) (mmtp.ResponseEnum, error) {
 }
 
 // Send transfers a message to another Agent with receivingMrn
-func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn string, bytes []byte) (mmtp.ResponseEnum, error) {
+func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, mrnOrSubject string, isBroadcast bool, bytes []byte) (mmtp.ResponseEnum, error) {
 	switch a.state {
 	case AgentState_NOTCONNECTED:
 		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not connected to an Edge Router")
@@ -131,70 +131,59 @@ func (a *Agent) Send(ctx context.Context, timeToLive time.Duration, receivingMrn
 		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not authenticated")
 	}
 
-	sendMsg := &mmtp.MmtpMessage{
-		MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
-		Uuid:    uuid.NewString(),
-		Body: &mmtp.MmtpMessage_ProtocolMessage{
-			ProtocolMessage: &mmtp.ProtocolMessage{
-				ProtocolMsgType: mmtp.ProtocolMessageType_SEND_MESSAGE,
-				Body: &mmtp.ProtocolMessage_SendMessage{
-					SendMessage: &mmtp.Send{
-						ApplicationMessage: &mmtp.ApplicationMessage{
-							Header: &mmtp.ApplicationMessageHeader{
-								SubjectOrRecipient: &mmtp.ApplicationMessageHeader_Recipients{
-									Recipients: &mmtp.Recipients{
-										Recipients: []string{receivingMrn},
+	var sendMsg *mmtp.MmtpMessage
+	if isBroadcast {
+		sendMsg = &mmtp.MmtpMessage{
+			MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
+			Uuid:    uuid.NewString(),
+			Body: &mmtp.MmtpMessage_ProtocolMessage{
+				ProtocolMessage: &mmtp.ProtocolMessage{
+					ProtocolMsgType: mmtp.ProtocolMessageType_SEND_MESSAGE,
+					Body: &mmtp.ProtocolMessage_SendMessage{
+						SendMessage: &mmtp.Send{
+							ApplicationMessage: &mmtp.ApplicationMessage{
+								Header: &mmtp.ApplicationMessageHeader{
+									SubjectOrRecipient: &mmtp.ApplicationMessageHeader_Subject{
+										Subject: mrnOrSubject,
 									},
+									BodySizeNumBytes: uint32(len(bytes)),
+									Sender:           a.Mrn,
 								},
-								BodySizeNumBytes: uint32(len(bytes)),
-								Sender:           a.Mrn,
+								Body: bytes,
 							},
-							Body: bytes,
 						},
 					},
 				},
 			},
-		},
-	}
-	err := writeMessage(ctx, a.ws, sendMsg)
-	if err != nil {
-		return mmtp.ResponseEnum_ERROR, fmt.Errorf("failed to send message: %w", err)
-	}
-	return mmtp.ResponseEnum_GOOD, nil
-}
-
-// Publish transfers a message with regard to a subject
-func (a *Agent) Publish(ctx context.Context, timeToLive time.Duration, subject string, bytes []byte) (mmtp.ResponseEnum, error) {
-	switch a.state {
-	case AgentState_NOTCONNECTED:
-		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not connected to an Edge Router")
-	case AgentState_CONNECTED:
-		return mmtp.ResponseEnum_ERROR, fmt.Errorf("agent is not authenticated")
-	}
-
-	sendMsg := &mmtp.MmtpMessage{
-		MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
-		Uuid:    uuid.NewString(),
-		Body: &mmtp.MmtpMessage_ProtocolMessage{
-			ProtocolMessage: &mmtp.ProtocolMessage{
-				ProtocolMsgType: mmtp.ProtocolMessageType_SEND_MESSAGE,
-				Body: &mmtp.ProtocolMessage_SendMessage{
-					SendMessage: &mmtp.Send{
-						ApplicationMessage: &mmtp.ApplicationMessage{
-							Header: &mmtp.ApplicationMessageHeader{
-								SubjectOrRecipient: &mmtp.ApplicationMessageHeader_Subject{
-									Subject: subject,
+		}
+	} else {
+		sendMsg = &mmtp.MmtpMessage{
+			MsgType: mmtp.MsgType_PROTOCOL_MESSAGE,
+			Uuid:    uuid.NewString(),
+			Body: &mmtp.MmtpMessage_ProtocolMessage{
+				ProtocolMessage: &mmtp.ProtocolMessage{
+					ProtocolMsgType: mmtp.ProtocolMessageType_SEND_MESSAGE,
+					Body: &mmtp.ProtocolMessage_SendMessage{
+						SendMessage: &mmtp.Send{
+							ApplicationMessage: &mmtp.ApplicationMessage{
+								Header: &mmtp.ApplicationMessageHeader{
+									SubjectOrRecipient: &mmtp.ApplicationMessageHeader_Recipients{
+										Recipients: &mmtp.Recipients{
+											Recipients: []string{mrnOrSubject},
+										},
+									},
+									BodySizeNumBytes: uint32(len(bytes)),
+									Sender:           a.Mrn,
 								},
-								BodySizeNumBytes: uint32(len(bytes)),
-								Sender:           a.Mrn,
+								Body: bytes,
 							},
-							Body: bytes,
 						},
 					},
 				},
 			},
-		},
+		}
 	}
+
 	err := writeMessage(ctx, a.ws, sendMsg)
 	if err != nil {
 		return mmtp.ResponseEnum_ERROR, fmt.Errorf("failed to send message: %w", err)

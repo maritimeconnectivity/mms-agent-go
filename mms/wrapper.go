@@ -45,7 +45,7 @@ func DisconnectWithHandling(ctx context.Context, a *Agent) {
 }
 
 func SendTextWithHandling(ctx context.Context, a *Agent, receivingMrn string, msg string) {
-	res, err := a.Send(ctx, time.Duration(10), receivingMrn, []byte(msg))
+	res, err := a.Send(ctx, time.Duration(10), receivingMrn, false, []byte(msg))
 	if err != nil {
 		fmt.Println("could not send to edge router: %w", err)
 	}
@@ -74,7 +74,7 @@ func DecodeFileName(data []byte) (string, []byte) {
 }
 
 func SendDataWithHandling(ctx context.Context, a *Agent, receivingMrn string, data []byte) {
-	res, err := a.Send(ctx, time.Duration(10), receivingMrn, data)
+	res, err := a.Send(ctx, time.Duration(10), receivingMrn, false, data)
 	if err != nil {
 		fmt.Println("could not send to edge router: %w", err)
 	}
@@ -84,7 +84,7 @@ func SendDataWithHandling(ctx context.Context, a *Agent, receivingMrn string, da
 }
 
 func PublishDataWithHandling(ctx context.Context, a *Agent, subject string, data []byte) {
-	res, err := a.Publish(ctx, time.Duration(10), subject, data)
+	res, err := a.Send(ctx, time.Duration(10), subject, true, data)
 	if err != nil {
 		fmt.Println("could not publish data: %w", err)
 	}
